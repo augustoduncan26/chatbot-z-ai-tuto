@@ -1,6 +1,6 @@
 <?php
+session_start();
 
-//require_once __DIR__ . '/../vendor/autoload.php';
 require_once __DIR__ . '/../../src/bootstrap.php';
 
 use App\Models\Conversation;
@@ -8,15 +8,24 @@ use App\Models\Message;
 use App\Services\AIService;
 use Dotenv\Dotenv;
 
-// Cargar variables de entorno
 $dotenv = Dotenv::createImmutable(__DIR__ . '/../..');
 $dotenv->load();
 
 header('Content-Type: application/json');
+header('Access-Control-Allow-Origin: *');
+header('Access-Control-Allow-Methods: POST');
+header('Access-Control-Allow-Headers: Content-Type');
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     http_response_code(405);
-    echo json_encode(['error' => 'Método no permitido']);
+    echo json_encode(['success' => false, 'error' => 'Método no permitido']);
+    exit;
+}
+
+// Verificar autenticación
+if (!isset($_SESSION['user_id'])) {
+    http_response_code(401);
+    echo json_encode(['success' => false, 'error' => 'No autenticado']);
     exit;
 }
 
@@ -25,7 +34,7 @@ try {
     
     if (empty($input['session_id']) || empty($input['message'])) {
         http_response_code(400);
-        echo json_encode(['error' => 'Datos incompletos']);
+        echo json_encode(['success' => false, 'error' => 'Datos incompletos']);
         exit;
     }
     
@@ -37,7 +46,14 @@ try {
     
     if (!$conversation) {
         http_response_code(404);
-        echo json_encode(['error' => 'Conversación no encontrada']);
+        echo json_encode(['success' => false, 'error' => 'Conversación no encontrada']);
+        exit;
+    }
+    
+    // Verificar que la conversación pertenezca al usuario
+    if ($conversation['user_id'] != $_SESSION['user_id']) {
+        http_response_code(403);
+        echo json_encode(['success' => false, 'error' => 'No autorizado']);
         exit;
     }
     
@@ -52,7 +68,6 @@ try {
     $history = $conversationModel->getHistory($conversation['id'], 10);
     
     // Obtener system prompt
-    $systemMessages = [];
     $stmt = \App\Database::getConnection()->prepare(
         "SELECT content FROM messages WHERE conversation_id = :id AND role = 'system' LIMIT 1"
     );
@@ -77,6 +92,15 @@ try {
         ],
     ]);
     
+    // Actualizar título si es el primer mensaje
+    if ($conversation['title'] === 'Nueva conversación') {
+        $title = mb_substr($input['message'], 0, 50);
+        if (strlen($input['message']) > 50) {
+            $title .= '...';
+        }
+        $conversationModel->updateTitle($conversation['id'], $title);
+    }
+    
     echo json_encode([
         'success' => true,
         'message' => $aiResponse['content'],
@@ -87,6 +111,7 @@ try {
     ]);
     
 } catch (Exception $e) {
+    error_log('Error en message.php: ' . $e->getMessage());
     http_response_code(500);
     echo json_encode([
         'success' => false,
