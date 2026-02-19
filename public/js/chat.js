@@ -15,11 +15,18 @@ async function checkSession() {
         const response = await fetch('/api/check-session.php');
         const data = await response.json();
         
+        console.log('Check session result:', data);
+        
         if (data.authenticated) {
             currentUser = data.user;
             showChatScreen();
-            loadConversations();
+            await loadConversations();
         } else {
+            // No autenticado - mostrar pantalla de login
+            currentUser = null;
+            currentSessionId = null;
+            currentConversationId = null;
+            conversations = [];
             showAuthScreen();
         }
     } catch (error) {
@@ -62,6 +69,10 @@ async function handleLogin(e) {
     const email = document.getElementById('loginEmail').value;
     const password = document.getElementById('loginPassword').value;
     
+    const submitBtn = e.target.querySelector('button[type="submit"]');
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Iniciando sesión...';
+    
     try {
         const response = await fetch('/api/login.php', {
             method: 'POST',
@@ -72,15 +83,26 @@ async function handleLogin(e) {
         const data = await response.json();
         
         if (data.success) {
+            console.log('Login exitoso:', data.user);
             currentUser = data.user;
+            
+            // Forzar cambio de pantalla
             showChatScreen();
-            loadConversations();
+            
+            // Cargar conversaciones
+            await loadConversations();
+            
+            // Limpiar formulario
+            document.getElementById('loginForm').reset();
         } else {
             showError(data.error || 'Error al iniciar sesión');
         }
     } catch (error) {
         console.error('Error:', error);
         showError('Error de conexión');
+    } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Iniciar Sesión';
     }
 }
 
@@ -90,6 +112,10 @@ async function handleRegister(e) {
     const name = document.getElementById('registerName').value;
     const email = document.getElementById('registerEmail').value;
     const password = document.getElementById('registerPassword').value;
+    
+    const submitBtn = e.target.querySelector('button[type="submit"]');
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Creando cuenta...';
     
     try {
         const response = await fetch('/api/register.php', {
@@ -101,28 +127,53 @@ async function handleRegister(e) {
         const data = await response.json();
         
         if (data.success) {
+            console.log('Registro exitoso:', data.user);
             currentUser = data.user;
+            
+            // Forzar cambio de pantalla
             showChatScreen();
-            loadConversations();
+            
+            // Cargar conversaciones (estará vacío para nuevo usuario)
+            await loadConversations();
+            
+            // Limpiar formulario
+            document.getElementById('registerForm').reset();
         } else {
             showError(data.error || 'Error al registrarse');
         }
     } catch (error) {
         console.error('Error:', error);
         showError('Error de conexión');
+    } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Crear Cuenta';
     }
 }
 
 async function handleLogout() {
+    if (!confirm('¿Estás seguro que deseas cerrar sesión?')) {
+        return;
+    }
+    
     try {
         await fetch('/api/logout.php', { method: 'POST' });
+        
+        console.log('Logout exitoso');
+        
+        // Limpiar estado
         currentUser = null;
         currentSessionId = null;
         currentConversationId = null;
         conversations = [];
+        
+        // Limpiar chat
+        document.getElementById('messagesContainer').innerHTML = '';
+        
+        // Mostrar pantalla de auth
         showAuthScreen();
     } catch (error) {
         console.error('Error:', error);
+        alert('Error al cerrar sesión');
     }
 }
 
@@ -137,17 +188,30 @@ function hideError() {
 }
 
 function showAuthScreen() {
+    console.log('Mostrando pantalla de autenticación');
     document.getElementById('authScreen').classList.remove('hidden');
     document.getElementById('chatScreen').classList.add('hidden');
+    
+    // Limpiar formularios
+    document.getElementById('loginForm').reset();
+    document.getElementById('registerForm').reset();
+    hideError();
 }
 
 function showChatScreen() {
+    console.log('Mostrando pantalla de chat');
     document.getElementById('authScreen').classList.add('hidden');
     document.getElementById('chatScreen').classList.remove('hidden');
-    document.getElementById('userName').textContent = currentUser.name;
     
-    // Mostrar estado inicial
-    showEmptyChat();
+    // Actualizar nombre de usuario
+    if (currentUser) {
+        document.getElementById('userName').textContent = currentUser.name;
+    }
+    
+    // Mostrar estado inicial si no hay conversación activa
+    if (!currentSessionId) {
+        showEmptyChat();
+    }
 }
 
 // ========== CONVERSACIONES ==========
